@@ -1,0 +1,23 @@
+# Usa una imagen base oficial de Node.js
+FROM node:20-slim
+
+# Crea y establece el directorio de trabajo dentro del contenedor
+WORKDIR /usr/src/app
+
+# Copia los archivos de configuración de dependencias para aprovechar el cache de Docker
+# Esto hace que la construcción sea más rápida si solo cambias el código fuente.
+COPY package.json package-lock.json ./
+
+# Instala las dependencias
+RUN npm install
+
+# Copia el resto del código fuente de tu aplicación al contenedor
+COPY . .
+
+# Expone el puerto por defecto, aunque Cloud Run usará la variable $PORT.
+# Es buena práctica incluirlo por claridad.
+EXPOSE 8080
+
+# Comando para iniciar la aplicación
+# Reemplaza 'index.js' con el nombre de tu archivo de entrada (ej: server.js)
+CMD [ "node", "index.js" ]

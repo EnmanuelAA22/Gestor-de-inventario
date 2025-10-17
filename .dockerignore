@@ -1,0 +1,10 @@
+# Dependencias
+/node_modules
+
+# Logs
+npm-debug.log*
+
+# Entorno y Configuración
+.env
+.git
+.gitignore
