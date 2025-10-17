@@ -1,41 +1,77 @@
-// backend/server.js - VERSIÓN COMPLETA PARA TELECOMUNICACIONES
+// backend/server.js - VERSIÓN COMPLETA CORREGIDA PARA CLOUD RUN
+require('dotenv').config();
 const express = require('express');
 const mysql = require('mysql2/promise');
 const cors = require('cors');
 const path = require('path');
 
 const app = express();
-const PORT = 3000;
+
+// ✅ Puerto dinámico para Cloud Run
+const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(cors());
 app.use(express.json());
-app.use(express.static('../public'));
 
-// Conexión a MySQL
+// ✅ Ruta absoluta para archivos estáticos
+app.use(express.static(path.join(__dirname, '../public')));
+
+// ✅ Configuración de BD con variables de entorno
 const dbConfig = {
-  host: 'localhost',
-  user: 'root',
-  password: 'admin',
-  database: 'inventario_db'
+  host: process.env.DB_HOST || 'localhost',
+  user: process.env.DB_USER || 'root',
+  password: process.env.DB_PASSWORD || 'admin',
+  database: process.env.DB_NAME || 'inventario_db',
+  port: process.env.DB_PORT || 3306,
+  // ✅ Configuración para Cloud SQL
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  connectTimeout: 60000,
+  acquireTimeout: 60000,
+  timeout: 60000,
+  reconnect: true
 };
 
 let connection;
 
 async function connectDB() {
   try {
+    console.log('🔗 Conectando a la base de datos...');
+    console.log('📊 Configuración DB:', {
+      host: dbConfig.host,
+      user: dbConfig.user,
+      database: dbConfig.database,
+      port: dbConfig.port
+    });
+    
     connection = await mysql.createConnection(dbConfig);
     console.log('✅ Conectado a MySQL correctamente');
     
-    const [rows] = await connection.execute('SELECT COUNT(*) as count FROM inventario');
-    console.log(`📊 Base de datos cargada: ${rows[0].count} equipos en inventario`);
+    // Verificar tablas existentes
+    const [tables] = await connection.execute('SHOW TABLES');
+    console.log('📋 Tablas en la base de datos:', tables.map(t => Object.values(t)[0]));
     
-    const [userRows] = await connection.execute('SELECT COUNT(*) as count FROM usuarios');
-    console.log(`👥 Usuarios en sistema: ${userRows[0].count}`);
+    try {
+      const [rows] = await connection.execute('SELECT COUNT(*) as count FROM inventario WHERE activo = true');
+      console.log(`📊 Equipos en inventario: ${rows[0].count}`);
+    } catch (e) {
+      console.log('ℹ️  Tabla inventario no disponible aún');
+    }
+    
+    try {
+      const [userRows] = await connection.execute('SELECT COUNT(*) as count FROM usuarios');
+      console.log(`👥 Usuarios en sistema: ${userRows[0].count}`);
+    } catch (e) {
+      console.log('ℹ️  Tabla usuarios no disponible aún');
+    }
     
   } catch (error) {
     console.error('❌ Error conectando a MySQL:', error.message);
-    process.exit(1);
+    console.error('🔍 Detalles del error:', error);
+    
+    // Reintentar conexión después de 5 segundos
+    console.log('🔄 Reintentando conexión en 5 segundos...');
+    setTimeout(connectDB, 5000);
   }
 }
 
@@ -78,13 +114,33 @@ app.get('/panel control.html', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/panel control.html'));
 });
 
-// Health check
-app.get('/api/health', (req, res) => {
-  res.json({
-    success: true,
-    message: '🚀 Servidor funcionando correctamente',
-    timestamp: new Date().toISOString()
-  });
+// ==================== HEALTH CHECK MEJORADO ====================
+app.get('/api/health', async (req, res) => {
+  try {
+    let dbStatus = 'disconnected';
+    
+    if (connection) {
+      try {
+        await connection.execute('SELECT 1');
+        dbStatus = 'connected';
+      } catch (dbError) {
+        dbStatus = 'error';
+      }
+    }
+    
+    res.json({
+      status: 'healthy',
+      database: dbStatus,
+      timestamp: new Date().toISOString(),
+      environment: process.env.NODE_ENV || 'development'
+    });
+  } catch (error) {
+    res.status(503).json({
+      status: 'unhealthy',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
 });
 
 // Test de conexión a BD
@@ -863,11 +919,14 @@ async function startServer() {
   try {
     await connectDB();
     
-    app.listen(PORT, () => {
-      console.log(`🚀 Servidor ejecutándose en http://localhost:${PORT}`);
-      console.log(`📁 Sirviendo archivos desde: ../public/`);
-      console.log(`🏠 Frontend: http://localhost:${PORT}`);
-      console.log(`📊 API: http://localhost:${PORT}/api`);
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`🚀 Servidor ejecutándose en http://0.0.0.0:${PORT}`);
+      console.log(`📁 Sirviendo archivos desde: ${path.join(__dirname, '../public')}`);
+      console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log('🔧 Configuración Cloud Run:');
+      console.log(`   - PORT: ${PORT}`);
+      console.log(`   - DB_HOST: ${process.env.DB_HOST || 'localhost'}`);
+      console.log(`   - DB_NAME: ${process.env.DB_NAME || 'inventario_db'}`);
       console.log('');
       console.log('🔐 Sistema de autenticación directa con MySQL');
       console.log('📡 ESPECIALIZADO PARA TELECOMUNICACIONES');
